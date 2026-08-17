@@ -9,7 +9,7 @@
 ## Part 1 — Student Information
 | Name | Student ID | Date | Group |
 |---|---|---|---|
-| | | | |
+|Thura Aung | 6631503094 | 15.8.2026 |  |
 
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
@@ -18,6 +18,12 @@ Answer in your own words (2–4 sentences each).
 3. Explain "attack surface." Name two things that increase it in a web app.
 4. What does each STRIDE letter map to, and which security property does each threat violate?
 5. What does "Secure by Design" (CISA) mean, and how does it differ from bolting security on after release?
+
+1.     CIA triad:The CIA triad stands for Confidentiality, Integrity, and Availability, the three core goals of information security. A confidentiality failure could be a hacker stealing private student records, an integrity failure could be an attacker changing exam grades, and an availability failure could be a website being taken offline by a DDoS attack.
+2.     A trust boundary is a point where data or control moves between systems, components, or users with different levels of trust. Data crossing a trust boundary deserves extra scrutiny because it may be untrusted, manipulated, or malicious, so it should be validated and properly authorized before being accepted.
+3.     An attack surface is the collection of all possible entry points that an attacker could use to compromise a system. In a web application, the attack surface can increase by adding more public APIs/endpoints or by using third-party libraries and services with potential vulnerabilities.
+4.     STRIDE stands for Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege. They correspond respectively to violations of authentication, integrity, non-repudiation/accountability, confidentiality, availability, and authorization.
+5.     Secure by Design, as promoted by CISA, means building security into a product from the beginning rather than treating it as an optional feature. Instead of releasing an insecure application and fixing vulnerabilities afterward, developers consider threats, secure defaults, and protections throughout design, development, testing, and maintenance.
 
 ## Part 3 — Hands-on Lab (180 min)
 **Learning goals:** build a data-flow diagram (DFD), apply STRIDE to a real Flask app, rank risks, and propose mitigations.
@@ -42,7 +48,10 @@ Source to model lives in `sample-app/app.py`. Template to fill: `THREAT-MODEL-TE
 
 **Task 0 — Onboarding (5 min)** · *Goal:* prove the environment works. *Steps:* `docker compose up`, hit `/notes` and `/files/<name>`, read `sample-app/app.py`. *Deliverable:* screenshot of the running app + the JSON response.
 
+![alt text](S1.png) ![alt text](S2.png) 
+
 **Task 1 — Draw the DFD (25 min)** · *Goal:* map the system. *Steps:* identify the external entity (web client), the process (Flask app), the data store (`notes.db` SQLite), the `uploads/` store, and the flows for `/notes`, `/upload`, `/files/<name>`; mark the Internet→app trust boundary with a dashed line. *Deliverable:* DFD image embedded in your copy of the template.
+
 
 **Task 2 — STRIDE the elements (30 min)** · *Goal:* enumerate threats per element. *Steps:* for each element fill the S/T/R/I/D/E grid. Ground it in real code: `/notes` accepts a client-supplied `owner` with no auth (Spoofing); `/upload` saves raw `f.filename` — arbitrary-file-write (Tampering) — and echoes the resolved save path back in its response (Information disclosure); `/files/<name>` reads it back but is comparatively defended (see Task 5); no logging anywhere (Repudiation). *Deliverable:* completed STRIDE table.
 
