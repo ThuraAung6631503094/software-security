@@ -7,9 +7,9 @@
 > **Ethics note:** Crack only the hashes provided in `hashes.txt` on your own machine. Password-cracking against accounts or systems you don't own is illegal. Wordlists and recovered values stay inside the lab VM.
 
 ## Part 1 — Student Information
-| Name | Student ID | Date | Group |
+| Name | Student ID | Date | Group | Ai Tool |
 |---|---|---|---|
-| Thura Aung | 6631503094 | 16.8.2026 | |
+| Thura Aung | 6631503094 | 16.8.2026 | | ChatGpt |
 
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
@@ -196,14 +196,51 @@ if __name__ == "__main__":
       
 **Task 7 — Authenticated encryption round-trip (20 min)** · *Goal:* use AEAD correctly. *Steps:* encrypt+decrypt a message with **AES-GCM** using a random 12-byte nonce and a key from an env var; then flip one ciphertext byte and show decryption **fails** (tag check). *Deliverable:* the round-trip output + the tampered-fails proof.
 
+(Task 7)
+![alt text](image.png)
+
 **Task 8 — TLS in practice (15 min)** · *Goal:* read a real cert. *Steps:* run `openssl s_client -connect example.com:443 </dev/null 2>/dev/null | tee /tmp/tls.txt | openssl x509 -noout -issuer -subject -dates` for the cert summary, then `grep -E 'Protocol|New,' /tmp/tls.txt` for the negotiated TLS version (the version line is printed by `s_client`, not by `x509`, so the plain pipe would discard it); identify issuer, validity, and that TLS version. *Deliverable:* the cert summary + one line on what TLS protects that hashing/at-rest encryption does not.
+
+(Task 8)
+
+     TLS protects data in transit from interception and tampering, unlike hashing or at-rest encryption, which do not protect data while it is being transmitted.
+![alt text](image-8.png)
 
 **Task 9 — Defend / fix it (20 min)** · *Goal:* remediate using `solution_skeleton.py`. *Steps:* run `python solution_skeleton.py`; confirm `store_password`/`verify_password` use argon2id (auto-salted), `encrypt_gcm` uses a random 12-byte nonce + auth tag with a key from `ENC_KEY_HEX` env, and `reset_token` uses `secrets`. Map each fix to the CWE it closes. *Deliverable:* before/after table (misuse → fix → CWE closed) + screenshot of the fixed script running.
 
+(Task 9)
+
+| Misuse                          | Fix                                         | CWE closed |
+| ------------------------------- | ------------------------------------------- | ---------- |
+| Weak password hashing           | Argon2id with automatic salt                | CWE-916    |
+| Weak/unauthenticated encryption | AES-GCM with authentication tag             | CWE-327    |
+| Hard-coded encryption key       | Key from `ENC_KEY_HEX` environment variable | CWE-798    |
+| Unsafe randomness/nonce         | Random 12-byte nonce                        | CWE-330    |
+| Predictable reset token         | `secrets` CSPRNG                            | CWE-330    |
+
+![alt text](image-9.png)
+
 ## Part 4 — Reflection
 1. Map each of the four misuses to its CWE and to OWASP A04, in one line each.
+
+```
+     - Weak password hashing → CWE-916 → OWASP A04: Cryptographic Failures
+     - Weak/incorrect encryption → CWE-327 → OWASP A04: Cryptographic Failures
+     - Predictable random values/nonces → CWE-330 → OWASP A04: Cryptographic Failures
+     - Hard-coded keys → CWE-798 → OWASP A04: Cryptographic Failures
+```
+
 2. Name a real-world breach caused by weak password hashing or hardcoded keys, and which fix here would have prevented it.
+
+ ```
+ The 2012 LinkedIn breach exposed passwords stored using unsalted SHA-1 hashes, making many of them much easier to crack. Using Argon2id with automatic random salts, as in this lab, would have made password cracking much slower and more difficult.
+ ```
+
 3. Across all four fixes, which closes the largest real-world risk, and why?
+
+ ```
+ I think replacing weak password hashing with Argon2id closes the largest real-world risk because stolen password databases can affect millions of users, especially when people reuse passwords. Argon2id with salts and a deliberately expensive computation makes offline password cracking much harder.
+  ```
 
 ## Grading rubric (100)
 | Criterion | Points |
@@ -227,7 +264,13 @@ if __name__ == "__main__":
   *Flags are unique per student — submitting another student's flag is a violation. How to submit: **learn.zcr.ai/submit** (full guide: `SUBMISSION.md` in the repo root).*
 - **Explain in your own words** *(graded on your reasoning, not copied text):*
   1. What did you do, and **why did the vulnerability work**?
+
+- I tested weak password hashing, encryption, randomness, and key handling. The vulnerabilities worked because weak hashes like MD5 are fast to crack, predictable values can be guessed, and hard-coded keys can be exposed.
+
   2. **Why does your fix actually stop it** — and what could still break it?
+  
+- I used Argon2id for passwords, AES-GCM for authenticated encryption, secrets for secure random values, and an environment variable for the encryption key. These fixes make cracking, guessing, and tampering much harder, but security could still fail if keys are leaked, nonces are reused, or the code is used incorrectly.
+  
 
 ---
 
@@ -235,9 +278,24 @@ if __name__ == "__main__":
 
 AI is a power tool you must **distrust** — you are graded on your *critique*, not the AI's answer.
 
-1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer.
+1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer. 
+I asked an AI assistant to help fix the Week 3 cryptography code. It suggested:
+```
+def verify_password(hash_, pw): try: return ph.verify(hash_, pw) except Exception: return False def encrypt_gcm(data, key): nonce = os.urandom(12) cipher = AES.new(key, AES.MODE_GCM, nonce=nonce) return nonce, *cipher.encrypt_and_digest(data)
+```
+The AI said this fixed password verification and used AES-GCM securely.
+
 2. **Find what's wrong or risky** in it — insecure code, a subtly incomplete fix, a hallucinated API/function/CVE, a missed edge case, or wrong reasoning. Quote the exact line(s).
+```
+The risky lines were:
+"except Exception:" and "def encrypt_gcm(data, key):"
+except Exception can hide other programming errors. Also, the encryption key was passed directly to the function instead of being loaded from the required ENC_KEY_HEX environment variable.
+```
 3. Produce the **correct, verified** version yourself and explain in 2–3 sentences why the AI's output was insufficient.
+```
+def encrypt_gcm(data): key = bytes.fromhex(os.environ["ENC_KEY_HEX"]) nonce = os.urandom(12) cipher = AES.new(key, AES.MODE_GCM, nonce=nonce) return nonce, *cipher.encrypt_and_digest(data)
+```
+I verified the fixed script in Task 9. The AI answer was incomplete because it did not enforce secure key handling and used overly broad error handling.
 
 > Disclose your AI use in the Part 1 table. This task counts toward your **Defense + Reflection** score.
 
@@ -246,6 +304,18 @@ AI is a power tool you must **distrust** — you are graded on your *critique*, 
 ## 🧠 Comprehension & Prompt (required)
 
 **A. Explain in Plain English (EiPE).** In 2–3 sentences, in your own words, describe what this week's vulnerable code/endpoint actually *does* and *why it is exploitable* — explain the mechanism, don't dump jargon.
+```
+The vulnerable code used weak cryptography that could make passwords easier to crack or encrypted data unsafe. For example, encryption without proper authentication can allow modified ciphertext to go unnoticed.
+```
 
 **B. Prompt Problem.** Write a **single prompt** that makes an AI produce a *correct, secure* fix for one finding. Run it: does the exploit now fail? If not, refine the prompt and try again. Submit the **final prompt + the verified result**.
 *Graded on the prompt's precision and your verification — this trains problem decomposition and AI literacy (Denny et al. 2024).*
+
+Final prompt:
+
+>Fix the encryption using AES-GCM. Use a random 12-byte nonce, load the key from ENC_KEY_HEX, return the ciphertext and authentication tag, and make decryption fail if the ciphertext is changed.
+
+Verified result:
+```
+I ran the fixed code and the normal encrypt/decrypt round-trip succeeded. After changing one ciphertext byte, decryption failed with a MAC/tag verification error, confirming that the fix stopped the tampering attack.
+```
