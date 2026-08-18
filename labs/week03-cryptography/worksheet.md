@@ -18,12 +18,13 @@ Answer in your own words (2–4 sentences each).
 3. What is a salt, what attack does it defeat, and why must it be unique per password?
 4. Why does AES-ECB leak structure, and what does an authenticated mode like AES-GCM add?
 5. What's the difference between `random` and a CSPRNG (e.g. `secrets`), and where does it matter?
-
-1.     Hashing, encryption, and encoding:Hashing turns data into a fixed value and is mainly used for checking integrity or storing passwords securely. Encryption hides data using a key and can be reversed, while encoding only changes the format of data. Hashing is wrong for data you need to recover, encryption is wrong for password storage, and encoding is wrong for protecting sensitive information.
-2.     MD5/SHA-1 for passwords:MD5 and SHA-1 are very fast, so attackers can try millions of password guesses quickly. Passwords should use slow password-hashing algorithms such as Argon2id, bcrypt, or scrypt.
-3.     Salt:A salt is a random value added to a password before hashing. It prevents attackers from easily using precomputed tables such as rainbow tables. Each password needs a unique salt so identical passwords do not produce identical hashes.
-4.     AES-ECB vs AES-GCM:AES-ECB encrypts identical blocks into identical ciphertext blocks, so patterns in the original data can still be visible. AES-GCM hides these patterns and also checks that the encrypted data has not been changed.
-5.     random vs CSPRNG:random is designed for simulations and normal applications, not for security, because its output may be predictable. A CSPRNG such as Python's secrets produces much harder-to-predict values and should be used for passwords, reset tokens, session IDs, and security keys.
+```bash
+1.Hashing, encryption, and encoding:Hashing turns data into a fixed value and is mainly used for checking integrity or storing passwords securely. Encryption hides data using a key and can be reversed, while encoding only changes the format of data. Hashing is wrong for data you need to recover, encryption is wrong for password storage, and encoding is wrong for protecting sensitive information.
+2.MD5/SHA-1 for passwords:MD5 and SHA-1 are very fast, so attackers can try millions of password guesses quickly. Passwords should use slow password-hashing algorithms such as Argon2id, bcrypt, or scrypt.
+3.Salt:A salt is a random value added to a password before hashing. It prevents attackers from easily using precomputed tables such as rainbow tables. Each password needs a unique salt so identical passwords do not produce identical hashes.
+4.AES-ECB vs AES-GCM:AES-ECB encrypts identical blocks into identical ciphertext blocks, so patterns in the original data can still be visible. AES-GCM hides these patterns and also checks that the encrypted data has not been changed.
+5.random vs CSPRNG:random is designed for simulations and normal applications, not for security, because its output may be predictable. A CSPRNG such as Python's secrets produces much harder-to-predict values and should be used for passwords, reset tokens, session IDs, and security keys.
+```
 
 ![Four paired rows showing that password storage, cipher mode, randomness and key source are four separate crypto decisions: MD5 (CWE-916/327) becomes argon2id, AES-ECB with a hardcoded key (CWE-327) becomes AES-GCM with a nonce and tag, a 6-digit random.choice token (CWE-330) becomes secrets.token_urlsafe, and HARDCODED_KEY (CWE-798) becomes a key injected from the environment — so naming AES answers none of the four questions.](img/crypto-misuse.svg)
 
@@ -47,62 +48,69 @@ Targets: `vulnerable_crypto.py` (the misuses), `hashes.txt` (four unsalted MD5s)
 
 (Task 0)
 ![alt text](image-2.png)
-
-      The vulnerable program ran successfully and showed MD5 hashing, AES-ECB encryption, and a 6-digit random token. This confirms the insecure crypto behaviors that will be tested and fixed in the next tasks.
-
+```bash
+The vulnerable program ran successfully and showed MD5 hashing, AES-ECB encryption, and a 6-digit random token. This confirms the insecure crypto behaviors that will be tested and fixed in the next tasks.
+```
 **Task 1 — Capture the Hash (30 min)** · *Goal:* recover the passwords. *Steps:* strip the comment lines from `hashes.txt`, then run `hashcat -m 0 hashes.txt rockyou.txt` (or the `john --format=raw-md5` equivalent); recover all four plaintexts. *Deliverable:* screenshot of the cracked results (mask any real-looking value). Note in one line why unsalted MD5 fell so fast (CWE-916/327).
 
 ```sim
 aes-modes
 ```
 (Task 1)
-![alt text](photo_2026-08-16_15-38-17.jpg)
-
-      Unsalted MD5 was cracked very quickly because MD5 is designed to be fast and the hashes did not use unique salts, allowing Hashcat to compare millions of common password guesses efficiently (CWE-916/327).
-
- Mitigation:
-      Passwords should be stored using Argon2id instead of MD5. Argon2id uses salts and is intentionally slower, making password cracking much harder.     
-
+![alt text](image-11.png)
+```bash
+ Unsalted MD5 was cracked very quickly because MD5 is designed to be fast and the hashes did not use unique salts, allowing Hashcat to compare millions of common password guesses efficiently (CWE-916/327).
+```
+```bash
+Mitigation:
+Passwords should be stored using Argon2id instead of MD5. Argon2id uses salts and is intentionally slower, making password cracking much harder.     
+```
 **Task 2 — ECB structure leak (20 min)** · *Goal:* prove ECB leaks. *Steps:* call `encrypt_ecb(b"A"*16 + b"A"*16)` from `vulnerable_crypto.py` and show the two 16-byte ciphertext blocks are identical; explain how this leaks plaintext structure (CWE-327). *Deliverable:* hex output highlighting the repeated block.
 
 (Task 2)
 ![alt text](image-3.png)
 
-     AES-ECB encrypts identical 16-byte plaintext blocks into identical ciphertext blocks when the same key is used. Because of this, repeated patterns in the original data remain visible in the encrypted data, which can reveal information about the plaintext structure (CWE-327).
-
+```bash
+AES-ECB encrypts identical 16-byte plaintext blocks into identical ciphertext blocks when the same key is used. Because of this, repeated patterns in the original data remain visible in the encrypted data, which can reveal information about the plaintext structure (CWE-327).
+```
+```bash
 Mitigation:
-     AES-ECB should not be used for sensitive data because it does not hide repeated patterns. An authenticated encryption mode such as AES-GCM should be used with a unique random nonce, because it provides confidentiality and also detects unauthorized modification.     
-
+AES-ECB should not be used for sensitive data because it does not hide repeated patterns. An authenticated encryption mode such as AES-GCM should be used with a unique random nonce, because it provides confidentiality and also detects unauthorized modification.     
+```
 **Task 3 — Predictable token (15 min)** · *Goal:* show the reset token is guessable. *Steps:* call `reset_token()` repeatedly; argue why a 6-digit `random` token (10^6 space, non-CSPRNG) is brute-forceable (CWE-330). *Deliverable:* sample tokens + a one-line attack estimate.
 
 (Task 3)
 ![alt text](image-4.png)
-
-     The reset token contains only six decimal digits, giving just 1,000,000 possible values, and it is generated using Python's non-cryptographic random module. This makes the token unsuitable for security-sensitive authentication and potentially guessable through repeated attempts (CWE-330).
-
+```bash
+The reset token contains only six decimal digits, giving just 1,000,000 possible values, and it is generated using Python's non-cryptographic random module. This makes the token unsuitable for security-sensitive authentication and potentially guessable through repeated attempts (CWE-330).
+```
+```bash
 One-line attack estimate:
-      A 6-digit token has only 1,000,000 possibilities; at 1,000 guesses per second, all possibilities could theoretically be tested in about 16.7 minutes, with the correct token found on average in about half that time.
-
+A 6-digit token has only 1,000,000 possibilities; at 1,000 guesses per second, all possibilities could theoretically be tested in about 16.7 minutes, with the correct token found on average in about half that time.
+```
+```bash
 Mitigation:
-      Reset tokens should be generated using a cryptographically secure random generator such as Python's secrets module. The token should also have much more entropy, expire quickly, be single-use, and the application should rate-limit verification attempts.     
-
+Reset tokens should be generated using a cryptographically secure random generator such as Python's secrets module. The token should also have much more entropy, expire quickly, be single-use, and the application should rate-limit verification attempts.     
+```
 **Task 4 — Hardcoded key (5 min)** · *Goal:* identify the key-management flaw. *Steps:* find `HARDCODED_KEY` in `vulnerable_crypto.py`; explain why shipping a key in source is CWE-798. *Deliverable:* the line + a 2-sentence mitigation.
 
 (Task 4)
 ![alt text](image-5.png)
 
-     Storing an encryption key directly in source code is insecure because anyone who can access the source code or compiled application may recover the key. If the same key is deployed to many systems, one leaked copy can compromise all encrypted data, which is a hardcoded credential issue under CWE-798.
-
+```bash
+Storing an encryption key directly in source code is insecure because anyone who can access the source code or compiled application may recover the key. If the same key is deployed to many systems, one leaked copy can compromise all encrypted data, which is a hardcoded credential issue under CWE-798.
+```
+```bash
 Mitigation:
-      Encryption keys should be stored outside the source code, such as in environment variables or a dedicated secret-management system. The key should also be protected with access controls and rotated if it is exposed.
-
+Encryption keys should be stored outside the source code, such as in environment variables or a dedicated secret-management system. The key should also be protected with access controls and rotated if it is exposed.
+```
 **Task 5 — Crack the project target's hashes (25 min)** · *Goal:* apply cracking to your term project. *Steps:* **NoteVault** stores unsalted MD5 password hashes; obtain them (via the app's `/admin` once you can reach it, or from its `seed()`), and crack them with `hashcat -m 0`. *Deliverable:* the recovered password(s) + note the CWE — record this finding for your project report (`project/REPORT-TEMPLATE.md` in the repo root).
 
 (Task 5)
 ![alt text](image-6.png)
-
-     NoteVault stores seeded user passwords as unsalted MD5 hashes. admin123 was recovered using RockYou, while alicepw required adding the known seed candidate to a small wordlist, showing that MD5 password storage is vulnerable to fast offline guessing (CWE-916/CWE-327).
-
+```bash
+NoteVault stores seeded user passwords as unsalted MD5 hashes. admin123 was recovered using RockYou, while alicepw required adding the known seed candidate to a small wordlist, showing that MD5 password storage is vulnerable to fast offline guessing (CWE-916/CWE-327).
+```
 **Task 6 — Password storage migration (25 min)** · *Goal:* fix it the way real apps do. *Steps:* write `store_password`/`verify_password` with **argon2id**, and a **rehash-on-login** path that upgrades a legacy MD5 record to argon2id the next time the user logs in. *Deliverable:* the code + a short note on why migration matters.
 
 (Task 6)
@@ -191,9 +199,9 @@ if __name__ == "__main__":
     # Verify the new Argon2id hash
     print("Argon2 verify:", verify_password(upgraded_hash, "password123"))
     
-```
-      Rehash-on-login lets an application gradually replace weak legacy MD5 password hashes with stronger Argon2id hashes without forcing every user to reset their password immediately. When a user successfully logs in, the application verifies the old hash and then stores a new salted Argon2id hash for future logins.
-      
+```bash
+Rehash-on-login lets an application gradually replace weak legacy MD5 password hashes with stronger Argon2id hashes without forcing every user to reset their password immediately. When a user successfully logs in, the application verifies the old hash and then stores a new salted Argon2id hash for future logins.
+```      
 **Task 7 — Authenticated encryption round-trip (20 min)** · *Goal:* use AEAD correctly. *Steps:* encrypt+decrypt a message with **AES-GCM** using a random 12-byte nonce and a key from an env var; then flip one ciphertext byte and show decryption **fails** (tag check). *Deliverable:* the round-trip output + the tampered-fails proof.
 
 (Task 7)
@@ -202,8 +210,9 @@ if __name__ == "__main__":
 **Task 8 — TLS in practice (15 min)** · *Goal:* read a real cert. *Steps:* run `openssl s_client -connect example.com:443 </dev/null 2>/dev/null | tee /tmp/tls.txt | openssl x509 -noout -issuer -subject -dates` for the cert summary, then `grep -E 'Protocol|New,' /tmp/tls.txt` for the negotiated TLS version (the version line is printed by `s_client`, not by `x509`, so the plain pipe would discard it); identify issuer, validity, and that TLS version. *Deliverable:* the cert summary + one line on what TLS protects that hashing/at-rest encryption does not.
 
 (Task 8)
-
-     TLS protects data in transit from interception and tampering, unlike hashing or at-rest encryption, which do not protect data while it is being transmitted.
+```bash
+TLS protects data in transit from interception and tampering, unlike hashing or at-rest encryption, which do not protect data while it is being transmitted.
+```     
 ![alt text](image-8.png)
 
 **Task 9 — Defend / fix it (20 min)** · *Goal:* remediate using `solution_skeleton.py`. *Steps:* run `python solution_skeleton.py`; confirm `store_password`/`verify_password` use argon2id (auto-salted), `encrypt_gcm` uses a random 12-byte nonce + auth tag with a key from `ENC_KEY_HEX` env, and `reset_token` uses `secrets`. Map each fix to the CWE it closes. *Deliverable:* before/after table (misuse → fix → CWE closed) + screenshot of the fixed script running.
@@ -223,22 +232,21 @@ if __name__ == "__main__":
 ## Part 4 — Reflection
 1. Map each of the four misuses to its CWE and to OWASP A04, in one line each.
 
-```
-     - Weak password hashing → CWE-916 → OWASP A04: Cryptographic Failures
-     - Weak/incorrect encryption → CWE-327 → OWASP A04: Cryptographic Failures
-     - Predictable random values/nonces → CWE-330 → OWASP A04: Cryptographic Failures
-     - Hard-coded keys → CWE-798 → OWASP A04: Cryptographic Failures
-```
+ - Weak password hashing → CWE-916 → OWASP A04: Cryptographic Failures
+ - Weak/incorrect encryption → CWE-327 → OWASP A04: Cryptographic Failures
+ - Predictable random values/nonces → CWE-330 → OWASP A04: Cryptographic Failures
+ - Hard-coded keys → CWE-798 → OWASP A04: Cryptographic Failures
+
 
 2. Name a real-world breach caused by weak password hashing or hardcoded keys, and which fix here would have prevented it.
 
- ```
+ ```bash
  The 2012 LinkedIn breach exposed passwords stored using unsalted SHA-1 hashes, making many of them much easier to crack. Using Argon2id with automatic random salts, as in this lab, would have made password cracking much slower and more difficult.
  ```
 
 3. Across all four fixes, which closes the largest real-world risk, and why?
 
- ```
+ ```bash
  I think replacing weak password hashing with Argon2id closes the largest real-world risk because stolen password databases can affect millions of users, especially when people reuse passwords. Argon2id with salts and a deliberately expensive computation makes offline password cracking much harder.
   ```
 
@@ -280,19 +288,19 @@ AI is a power tool you must **distrust** — you are graded on your *critique*, 
 
 1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer. 
 I asked an AI assistant to help fix the Week 3 cryptography code. It suggested:
-```
+```bash
 def verify_password(hash_, pw): try: return ph.verify(hash_, pw) except Exception: return False def encrypt_gcm(data, key): nonce = os.urandom(12) cipher = AES.new(key, AES.MODE_GCM, nonce=nonce) return nonce, *cipher.encrypt_and_digest(data)
 ```
 The AI said this fixed password verification and used AES-GCM securely.
 
 2. **Find what's wrong or risky** in it — insecure code, a subtly incomplete fix, a hallucinated API/function/CVE, a missed edge case, or wrong reasoning. Quote the exact line(s).
-```
+```bash
 The risky lines were:
 "except Exception:" and "def encrypt_gcm(data, key):"
 except Exception can hide other programming errors. Also, the encryption key was passed directly to the function instead of being loaded from the required ENC_KEY_HEX environment variable.
 ```
 3. Produce the **correct, verified** version yourself and explain in 2–3 sentences why the AI's output was insufficient.
-```
+```bash
 def encrypt_gcm(data): key = bytes.fromhex(os.environ["ENC_KEY_HEX"]) nonce = os.urandom(12) cipher = AES.new(key, AES.MODE_GCM, nonce=nonce) return nonce, *cipher.encrypt_and_digest(data)
 ```
 I verified the fixed script in Task 9. The AI answer was incomplete because it did not enforce secure key handling and used overly broad error handling.
@@ -304,7 +312,7 @@ I verified the fixed script in Task 9. The AI answer was incomplete because it d
 ## 🧠 Comprehension & Prompt (required)
 
 **A. Explain in Plain English (EiPE).** In 2–3 sentences, in your own words, describe what this week's vulnerable code/endpoint actually *does* and *why it is exploitable* — explain the mechanism, don't dump jargon.
-```
+```bash
 The vulnerable code used weak cryptography that could make passwords easier to crack or encrypted data unsafe. For example, encryption without proper authentication can allow modified ciphertext to go unnoticed.
 ```
 
@@ -316,6 +324,6 @@ Final prompt:
 >Fix the encryption using AES-GCM. Use a random 12-byte nonce, load the key from ENC_KEY_HEX, return the ciphertext and authentication tag, and make decryption fail if the ciphertext is changed.
 
 Verified result:
-```
+```bash
 I ran the fixed code and the normal encrypt/decrypt round-trip succeeded. After changing one ciphertext byte, decryption failed with a MAC/tag verification error, confirming that the fix stopped the tampering attack.
 ```
