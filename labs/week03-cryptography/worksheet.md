@@ -14,17 +14,24 @@
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
 1. Distinguish hashing, encryption, and encoding — and give one job each is the wrong tool for.
+
+- 1.Hashing, encryption, and encoding:Hashing turns data into a fixed value and is mainly used for checking integrity or storing passwords securely. Encryption hides data using a key and can be reversed, while encoding only changes the format of data. Hashing is wrong for data you need to recover, encryption is wrong for password storage, and encoding is wrong for protecting sensitive information.
+
 2. Why is a fast hash like MD5/SHA-1 a bad choice for storing passwords, and what should be used instead?
+
+- 2.MD5/SHA-1 for passwords:MD5 and SHA-1 are very fast, so attackers can try millions of password guesses quickly. Passwords should use slow password-hashing algorithms such as Argon2id, bcrypt, or scrypt.
 3. What is a salt, what attack does it defeat, and why must it be unique per password?
+
+- 3.Salt:A salt is a random value added to a password before hashing. It prevents attackers from easily using precomputed tables such as rainbow tables. Each password needs a unique salt so identical passwords do not produce identical hashes.
+
 4. Why does AES-ECB leak structure, and what does an authenticated mode like AES-GCM add?
+
+- 4.AES-ECB vs AES-GCM:AES-ECB encrypts identical blocks into identical ciphertext blocks, so patterns in the original data can still be visible. AES-GCM hides these patterns and also checks that the encrypted data has not been changed.
+
 5. What's the difference between `random` and a CSPRNG (e.g. `secrets`), and where does it matter?
-```bash
-1.Hashing, encryption, and encoding:Hashing turns data into a fixed value and is mainly used for checking integrity or storing passwords securely. Encryption hides data using a key and can be reversed, while encoding only changes the format of data. Hashing is wrong for data you need to recover, encryption is wrong for password storage, and encoding is wrong for protecting sensitive information.
-2.MD5/SHA-1 for passwords:MD5 and SHA-1 are very fast, so attackers can try millions of password guesses quickly. Passwords should use slow password-hashing algorithms such as Argon2id, bcrypt, or scrypt.
-3.Salt:A salt is a random value added to a password before hashing. It prevents attackers from easily using precomputed tables such as rainbow tables. Each password needs a unique salt so identical passwords do not produce identical hashes.
-4.AES-ECB vs AES-GCM:AES-ECB encrypts identical blocks into identical ciphertext blocks, so patterns in the original data can still be visible. AES-GCM hides these patterns and also checks that the encrypted data has not been changed.
-5.random vs CSPRNG:random is designed for simulations and normal applications, not for security, because its output may be predictable. A CSPRNG such as Python's secrets produces much harder-to-predict values and should be used for passwords, reset tokens, session IDs, and security keys.
-```
+
+- 5.random vs CSPRNG:random is designed for simulations and normal applications, not for security, because its output may be predictable. A CSPRNG such as Python's secrets produces much harder-to-predict values and should be used for passwords, reset tokens, session IDs, and security keys.
+
 
 ![Four paired rows showing that password storage, cipher mode, randomness and key source are four separate crypto decisions: MD5 (CWE-916/327) becomes argon2id, AES-ECB with a hardcoded key (CWE-327) becomes AES-GCM with a nonce and tag, a 6-digit random.choice token (CWE-330) becomes secrets.token_urlsafe, and HARDCODED_KEY (CWE-798) becomes a key injected from the environment — so naming AES answers none of the four questions.](img/crypto-misuse.svg)
 
@@ -115,6 +122,7 @@ NoteVault stores seeded user passwords as unsalted MD5 hashes. admin123 was reco
 
 (Task 6)
 ```bash
+
 """
 Week 3 — FIX the misuse here. Fill in the TODOs.
 pip install argon2-cffi pycryptodome
@@ -198,6 +206,7 @@ if __name__ == "__main__":
 
     # Verify the new Argon2id hash
     print("Argon2 verify:", verify_password(upgraded_hash, "password123"))
+```
     
 ```bash
 Rehash-on-login lets an application gradually replace weak legacy MD5 password hashes with stronger Argon2id hashes without forcing every user to reset their password immediately. When a user successfully logs in, the application verifies the old hash and then stores a new salted Argon2id hash for future logins.

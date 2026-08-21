@@ -14,22 +14,16 @@
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
 1. Define the CIA triad and give one concrete failure example for each of the three properties.
-2. What is a *trust boundary*, and why does data crossing one deserve extra scrutiny?
-3. Explain "attack surface." Name two things that increase it in a web app.
-4. What does each STRIDE letter map to, and which security property does each threat violate?
-5. What does "Secure by Design" (CISA) mean, and how does it differ from bolting security on after release?
-
-```bash
 - 1.CIA triad:The CIA triad stands for Confidentiality, Integrity, and Availability, the three core goals of information security. A confidentiality failure could be a hacker stealing private student records, an integrity failure could be an attacker changing exam grades, and an availability failure could be a website being taken offline by a DDoS attack.
-
+2. What is a *trust boundary*, and why does data crossing one deserve extra scrutiny?
 - 2.A trust boundary is a point where data or control moves between systems, components, or users with different levels of trust. Data crossing a trust boundary deserves extra scrutiny because it may be untrusted, manipulated, or malicious, so it should be validated and properly authorized before being accepted.
-
+3. Explain "attack surface." Name two things that increase it in a web app.
 - 3.An attack surface is the collection of all possible entry points that an attacker could use to compromise a system. In a web application, the attack surface can increase by adding more public APIs/endpoints or by using third-party libraries and services with potential vulnerabilities.
-
+4. What does each STRIDE letter map to, and which security property does each threat violate?
 - 4.STRIDE stands for Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege. They correspond respectively to violations of authentication, integrity, non-repudiation/accountability, confidentiality, availability, and authorization.
-
+5. What does "Secure by Design" (CISA) mean, and how does it differ from bolting security on after release?
 - 5.Secure by Design, as promoted by CISA, means building security into a product from the beginning rather than treating it as an optional feature. Instead of releasing an insecure application and fixing vulnerabilities afterward, developers consider threats, secure defaults, and protections throughout design, development, testing, and maintenance.
-```
+
 
 ## Part 3 — Hands-on Lab (180 min)
 **Learning goals:** build a data-flow diagram (DFD), apply STRIDE to a real Flask app, rank risks, and propose mitigations.
@@ -54,18 +48,29 @@ Source to model lives in `sample-app/app.py`. Template to fill: `THREAT-MODEL-TE
 
 **Task 0 — Onboarding (5 min)** · *Goal:* prove the environment works. *Steps:* `docker compose up`, hit `/notes` and `/files/<name>`, read `sample-app/app.py`. *Deliverable:* screenshot of the running app + the JSON response.
 
+
 (Task 0)
 ![alt text](S1.png)
- ![alt text](S2.png) 
+![alt text](S2.png)
+
 
 **Task 1 — Draw the DFD (25 min)** · *Goal:* map the system. *Steps:* identify the external entity (web client), the process (Flask app), the data store (`notes.db` SQLite), the `uploads/` store, and the flows for `/notes`, `/upload`, `/files/<name>`; mark the Internet→app trust boundary with a dashed line. *Deliverable:* DFD image embedded in your copy of the template.
 
-(Task 2)
+
+(Task 1)
 ![alt text](<DFD.drawio Flask App.png>)
 
 
 **Task 2 — STRIDE the elements (30 min)** · *Goal:* enumerate threats per element. *Steps:* for each element fill the S/T/R/I/D/E grid. Ground it in real code: `/notes` accepts a client-supplied `owner` with no auth (Spoofing); `/upload` saves raw `f.filename` — arbitrary-file-write (Tampering) — and echoes the resolved save path back in its response (Information disclosure); `/files/<name>` reads it back but is comparatively defended (see Task 5); no logging anywhere (Repudiation). *Deliverable:* completed STRIDE table.
 
+
+(Task 2)
+| Element             | S — Spoofing                                               | T — Tampering                                         | R — Repudiation                     | I — Info Disclosure                                            | D — DoS                                             | E — Elevation                                                       |
+| ------------------- | ---------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
+| `/notes`            | **Yes** — client can choose `owner` with no authentication | Possible — attacker can submit arbitrary note content | **Yes** — no logging/audit trail    | Possible — notes may be readable without proper access control | Possible — many requests could consume resources    | Possible if missing authorization allows access as another user     |
+| `/upload`           | Low                                                        | **Yes** — raw `f.filename` is used when saving files  | **Yes** — uploads are not logged    | **Yes** — response reveals the resolved save path              | Possible — very large/many uploads may consume disk | Possible if arbitrary file write reaches sensitive locations        |
+| `/files/<name>`     | Low                                                        | Low / comparatively defended                          | **Yes** — file access is not logged | Possible — files can be returned to the requester              | Possible — repeated file requests consume resources | Low / comparatively defended                                        |
+| Application overall | No authentication means identity cannot be trusted         | Input/file handling can modify stored data            | **Yes** — no logging anywhere       | Errors/paths/data may expose internal information              | No obvious rate limiting                            | Missing authentication/authorization may allow unauthorized actions |
 
 
 **Task 3 — Elevation of Privilege game (20 min)** · *Goal:* find threats you missed. *Steps:* play the EoP deck against your DFD; each card you can tie to a real element/flow scores a point; record every valid threat. No printer or scissors? Draw from the digital deck below instead — same 78 cards, same rule. *Deliverable:* list of carded threats + score.
@@ -90,15 +95,141 @@ trust-boundary
 
 *Deliverable:* the boundary list, two owned-element reachability notes, one written chain, and the system claim.
 
+(Task 3b)
+1. Trust boundaries end-to-end
+
+For a /notes request:
+
+Client → Flask app → notes.db → Flask app → Client
+
+Crossing	Trust boundary	Check?
+Client → Flask	Public Internet → Application tier	❌ No authentication check
+Flask → notes.db	Application tier → Data tier	⚠️ SQL is parameterized, but there is no authorization/ownership check
+notes.db → Flask	Data tier → Application tier	No user-level access-control check
+Flask → Client	Application tier → Public Internet	Response is returned directly
+
+Main unchecked crossing: Public client → Flask. The client can supply owner itself, and the application trusts it without verifying identity.
+
+2. Assume one element is fully owned
+
+Flask process owned:
+The attacker can now reach notes.db, the uploads/ directory, application routes, request/response data, and anything else available with the Flask process's filesystem permissions.
+
+uploads/ store owned:
+The attacker can control files later exposed through /files/<name>, replace or poison uploaded content, and potentially consume storage, affecting users who retrieve those files.
+
+3. Chain two findings
+
+Client-controlled owner → no logging → forged notes cannot be reliably attributed
+
+Consequence: An attacker can impersonate another owner and the system has little evidence showing who actually created the note.
+
+Another strong chain from the upload path is:
+
+Save raw filename → attacker-controlled file placement → overwrite/modify server-accessible data
+
+4. One-line system claim
+
+Even if every element-level mitigation in Task 8 is implemented, this system still fails if requests can cross the public-to-application trust boundary without reliable authentication and authorization.
+
 **Task 4 — Abuse cases & attacker personas (20 min)** · *Goal:* think like specific adversaries. *Steps:* define 2 personas (e.g. a curious logged-in user; an anonymous internet attacker) and write 2 abuse cases each against the sample app, tied to DFD elements. *Deliverable:* 4 abuse cases.
+
+(Task 4)
+Abuse Cases & Attacker Personas
+Persona 1 — Curious Logged-in User
+A normal user who tries to access or modify data beyond what they should.
+- 1.Spoof another note owner
+The user sends a POST request to /notes and changes the owner field to another person's name.
+DFD element: Client → Flask /notes
+- 2.Access another user's notes
+The user requests notes without proper authorization checks and may see data belonging to other users.
+DFD element: Flask → notes.db
+
+Persona 2 — Anonymous Internet Attacker
+An external attacker with no legitimate account who sends malicious requests directly to the application.
+
+- 3.Upload a malicious or misleading file
+The attacker sends a crafted filename to /upload because the application saves the raw f.filename.
+DFD element: Client → Flask /upload → uploads/
+- 4.Cause storage exhaustion
+The attacker repeatedly uploads large or numerous files until the server runs out of storage, causing denial of service.
+DFD element: /upload → uploads/ directory
+
 
 **Task 5 — Path-traversal deep-dive (25 min)** · *Goal:* analyze the riskiest flow. *Steps:* trace `/upload` → `/files/<name>`; explain how `../` in a filename escapes `uploads/`; sketch the secure design (`secure_filename`, store outside web root, allow-list extensions). *Deliverable:* the data flow + secure-design note.
 
+```bash
+(Task 5)
+"Path-Traversal Deep-Dive"
+Data Flow
+
+Client → /upload → Flask app → uploads/ directory → /files/<name> → Flask app → Client
+
+The /upload endpoint uses the filename provided by the client. If an attacker uploads a file named ../test.txt, the path becomes:
+
+>uploads/../test.txt
+
+This resolves outside the uploads/ directory, so the attacker may write files to other locations that the Flask process can access. The /files/<name> route is safer if it uses send_from_directory(), but that does not prevent the unsafe file write during upload.
+
+Secure-design note
+A safer upload design should:
+
+- Run the filename through secure_filename().
+- Store uploads in a dedicated directory outside the web root.
+- Allow only approved extensions such as .txt, .png, or .pdf.
+- Generate a server-side filename instead of trusting the client's filename.
+- Reject oversized files and unexpected file types.
+
+```python
+from werkzeug.utils import secure_filename
+import uuid
+
+ALLOWED = {"txt", "png", "pdf"}
+
+name = secure_filename(f.filename)
+
+if "." not in name or name.rsplit(".", 1)[1].lower() not in ALLOWED:
+    return "Invalid file type", 400
+
+safe_name = f"{uuid.uuid4()}_{name}"
+f.save(os.path.join(UPLOAD_DIR, safe_name))
+```
+Secure-design summary: Never use a client-supplied filename directly as a filesystem path; sanitize it, restrict file types, and give uploaded files server-controlled names.
+
+
 **Task 6 — Threat-model the project target (30 min)** · *Goal:* kick off your term project. *Steps:* stop the sample-app first (`docker compose down` — both apps bind host port 8080), then run **NoteVault** (`cd ../../project/starter-app && docker compose up`), draw a quick DFD, and list the top 3 STRIDE threats you'd investigate. *Deliverable:* NoteVault DFD + top-3 threats (reuse these in your project report — `project/REPORT-TEMPLATE.md` in the repo root).
+
+(Task 6)
+![alt text](image-2.png)
+
+#### Top 3 STRIDE Threats
+
+| Priority | STRIDE | Threat | DFD Element / Flow | Reason |
+|---|---|---|---|---|
+| 1 | **T — Tampering** | SQL injection through user-controlled input | Web Client → Flask App → SQLite DB (/login, /search) | User-controlled input is directly inserted into SQL queries, which could allow an attacker to change the intended database query. |
+| 2 | **E — Elevation of Privilege** | User-controlled role during registration | Web Client → Flask App → SQLite DB (/register) | The registration endpoint accepts a client-supplied role, which could allow a user to assign themselves a higher-privileged role. |
+| 3 | **E — Elevation of Privilege / T — Tampering** | Command injection through the export feature | Web Client → Flask App → System Shell (/export) | The fmt parameter is inserted directly into a shell command executed with shell=True, allowing untrusted input to influence an operating-system command. |
 
 **Task 7 — Security requirements (15 min)** · *Goal:* turn threats into testable requirements. *Steps:* write 3 security requirements as acceptance criteria ("the system must … so that …"), each mapped to a threat from Task 2 or Task 6. *Deliverable:* 3 testable security requirements.
 
+| # | Security requirement                                                                                                                                                                                                                  | Mapped threat                                      |
+| - | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 1 | **The system must authenticate users and determine the note owner from the authenticated session, not from the client-supplied `owner` field, so that users cannot create notes while pretending to be another user.**                | **Spoofing — `/notes`**                            |
+| 2 | **The system must sanitize uploaded filenames and store files only inside the approved `uploads` directory, so that an attacker cannot use path traversal or crafted filenames to overwrite arbitrary files.**                        | **Tampering / Elevation of Privilege — `/upload`** |
+| 3 | **The system must log security-relevant actions such as note creation, file uploads, and failed requests with a timestamp and user identity, so that suspicious actions can be traced and users cannot easily deny performing them.** | **Repudiation — no logging**                       |
+
+
 **Task 8 — Defend / fix it: rank & mitigate (25 min) 🛡️** · *Goal:* turn threats into action you can prove. *Steps:* rank the top 5 threats by likelihood × impact; propose one concrete mitigation each (e.g., auth on `/notes`, `secure_filename()` + allowlist for `/upload`, request logging for Repudiation, size/rate limits for DoS). Then **pick one and actually implement it** in your fork.
+
+(Task 8)
+Top 5 Threats — Rank & Mitigate
+| Rank | Threat                                                                                             | STRIDE                             | Likelihood | Impact |   Risk | Concrete mitigation                                                                                             |
+| ---- | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------: | -----: | -----: | --------------------------------------------------------------------------------------------------------------- |
+| 1    | `/upload` uses the user-supplied filename directly, allowing path traversal / arbitrary file write | Tampering / Elevation of Privilege |          5 |      5 | **25** | Use `secure_filename()`, allow only approved file types, and ensure the final path remains inside `UPLOAD_DIR`. |
+| 2    | `/notes` trusts the client-supplied `owner`, so a user can pretend to be another user              | Spoofing                           |          5 |      4 | **20** | Add authentication and obtain the owner identity from the authenticated session instead of request JSON.        |
+| 3    | `/notes` GET returns all stored notes without authentication or authorization                      | Information Disclosure             |          5 |      4 | **20** | Require authentication and return only notes belonging to the authenticated user.                               |
+| 4    | Uploads and requests have no size/rate limits, allowing resource exhaustion                        | Denial of Service                  |          4 |      4 | **16** | Add maximum upload/request sizes and rate limiting.                                                             |
+| 5    | Important actions are not logged, so malicious users can deny what they did                        | Repudiation                        |          4 |      3 | **12** | Log security-relevant actions such as uploads, note creation, failures, timestamp, and authenticated user.      |
 
 *Deliverable — the top-5 table, plus for the one you implemented:*
 1. the **diff** (commit hash on your `wk01` branch),
