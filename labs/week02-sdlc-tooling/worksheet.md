@@ -7,10 +7,9 @@
 > **Ethics note:** The scanners run only against the provided `vulnerable-repo/` on your own machine. Do not point SAST/secret scanners at third-party repos or production systems without authorization. Treat any secret you find here as fake lab data.
 
 ## Part 1 — Student Information
-| Name | Student ID | Date | Group |
-|---|---|---|---|
-| Thura Aung | 6631503094 |15.8.2026 | |
-
+| Name | Student ID | Date | Group | AI Tool |
+|---|---|---|---|---|
+| Thura Aung | 6631503094 | 20.8.2026 | - | ChatGPT |
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
 1. Distinguish SAST, DAST, and SCA — what does each see, and when in the SDLC does each run?
@@ -346,8 +345,11 @@ if __name__ == "__main__":
 
 ## Part 4 — Reflection
 1. Map two of your findings to their CWE and to the matching OWASP 2025 category.
+> The SQL injection in /user maps to CWE-89 and OWASP 2025 A05: Injection. The hardcoded AWS key and database password map to CWE-798 and OWASP 2025 A07: Authentication Failures.
 2. Name a real-world breach caused by a hardcoded/leaked secret or an injection flaw, and what control would have caught it pre-release.
+> In Uber’s 2016 breach, attackers found an AWS access key stored in a private GitHub repository and used it to access data in Amazon S3. Automated secret scanning on every commit and pull request could have detected and blocked the exposed key before release.
 3. Which single tool (SAST vs. secret scanning) gave the highest-value findings on this repo, and why?
+> SAST provided the highest-value findings because Semgrep identified several directly exploitable weaknesses, including SQL injection, command injection, insecure MD5 password hashing, and debug mode. Secret scanning was still valuable, but SAST revealed more distinct vulnerabilities and explained the unsafe code lines that required correction.
 
 ## Grading rubric (100)
 | Criterion | Points |
@@ -380,8 +382,46 @@ if __name__ == "__main__":
 AI is a power tool you must **distrust** — you are graded on your *critique*, not the AI's answer.
 
 1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer.
+---
+1. AI assistant’s full answer
+- To fix the SQL injection, escape single quotation marks before adding the username to the query:
+```bash
+@app.route("/user")
+def user():
+    name = request.args.get("name", "")
+    safe_name = name.replace("'", "''")
+    con = sqlite3.connect("app.db")
+    q = f"SELECT * FROM users WHERE name = '{safe_name}'"
+    return str(con.execute(q).fetchall())
+```
+- Escaping quotation marks prevents attackers from breaking out of the SQL string.
+---
 2. **Find what's wrong or risky** in it — insecure code, a subtly incomplete fix, a hallucinated API/function/CVE, a missed edge case, or wrong reasoning. Quote the exact line(s).
+---
+2. What is wrong or risky
+- The risky lines are:
+```bash
+safe_name = name.replace("'", "''")
+q = f"SELECT * FROM users WHERE name = '{safe_name}'"
+```
+---
 3. Produce the **correct, verified** version yourself and explain in 2–3 sentences why the AI's output was insufficient.
+---
+3. Correct, verified version
+
+```bash
+@app.route("/user")
+def user():
+    name = request.args.get("name", "")
+    con = sqlite3.connect("app.db")
+    rows = con.execute(
+        "SELECT * FROM users WHERE name = ?",
+        (name,),
+    ).fetchall()
+    con.close()
+    return str(rows)
+```
+  > The AI’s fix was insufficient because it continued mixing user input with SQL and relied on hand-written escaping. The parameterized version sends the query and username separately, so malicious text is treated only as data. After verification, the SQL-injection Semgrep warning disappeared, and the payload ' OR 1=1 -- no longer returned unintended users.
 
 > Disclose your AI use in the Part 1 table. This task counts toward your **Defense + Reflection** score.
 
@@ -391,5 +431,29 @@ AI is a power tool you must **distrust** — you are graded on your *critique*, 
 
 **A. Explain in Plain English (EiPE).** In 2–3 sentences, in your own words, describe what this week's vulnerable code/endpoint actually *does* and *why it is exploitable* — explain the mechanism, don't dump jargon.
 
+- The /user endpoint takes a name from the URL and searches the database for a matching user. The vulnerable version inserted that input directly into the SQL command, so an attacker could submit SQL syntax such as ' OR 1=1 -- and make the database return records they were not supposed to see.
+
 **B. Prompt Problem.** Write a **single prompt** that makes an AI produce a *correct, secure* fix for one finding. Run it: does the exploit now fail? If not, refine the prompt and try again. Submit the **final prompt + the verified result**.
 *Graded on the prompt's precision and your verification — this trains problem decomposition and AI literacy (Denny et al. 2024).*
+
+- Final prompt given to the AI:
+>Fix only the SQL injection vulnerability in the Flask /user endpoint. Use Python’s sqlite3 parameterized-query syntax with a literal ? placeholder and pass name as the one-element tuple (name,). Do not use string formatting, concatenation, f-strings, manual escaping, or an ORM. Preserve the endpoint’s existing behavior, fetch the results, close the database connection, and return the corrected Python code.
+
+AI-generated secure fix:
+```bash
+@app.route("/user")
+def user():
+    name = request.args.get("name", "")
+    con = sqlite3.connect("app.db")
+
+    rows = con.execute(
+        "SELECT * FROM users WHERE name = ?",
+        (name,),
+    ).fetchall()
+
+    con.close()
+    return str(rows)
+```
+Verified result:
+
+I tested the fixed endpoint with the payload ' OR 1=1 --. It returned [] instead of returning every database record, while the normal input alice returned only Alice’s record; therefore, the SQL injection exploit failed. A new Semgrep scan also no longer reported the original CWE-89 SQL-injection finding.
