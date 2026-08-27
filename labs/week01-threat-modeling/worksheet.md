@@ -7,9 +7,9 @@
 > **Ethics note:** This week is *modeling only* — you analyze design, you do **not** attack the app. Run the sample app only on your own VM/localhost. Never apply these techniques to systems you do not own or lack written permission to test.
 
 ## Part 1 — Student Information
-| Name | Student ID | Date | Group |
-|---|---|---|---|
-|Thura Aung | 6631503094 | 15.8.2026 |  |
+| Name | Student ID | Date | Group | AI Tool |
+|---|---|---|---|---|
+| Thura Aung | 6631503094 | 15.8.2026 | - | ChatGPT |
 
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
@@ -94,10 +94,10 @@ trust-boundary
 ```
 
 *Deliverable:* the boundary list, two owned-element reachability notes, one written chain, and the system claim.
-
+---
 (Task 3b)
 1. Trust boundaries end-to-end
-
+---
 For a /notes request:
 
 Client → Flask app → notes.db → Flask app → Client
@@ -111,7 +111,7 @@ Flask → Client	Application tier → Public Internet	Response is returned direc
 Main unchecked crossing: Public client → Flask. The client can supply owner itself, and the application trusts it without verifying identity.
 
 2. Assume one element is fully owned
-
+---
 Flask process owned:
 The attacker can now reach notes.db, the uploads/ directory, application routes, request/response data, and anything else available with the Flask process's filesystem permissions.
 
@@ -119,7 +119,7 @@ uploads/ store owned:
 The attacker can control files later exposed through /files/<name>, replace or poison uploaded content, and potentially consume storage, affecting users who retrieve those files.
 
 3. Chain two findings
-
+---
 Client-controlled owner → no logging → forged notes cannot be reliably attributed
 
 Consequence: An attacker can impersonate another owner and the system has little evidence showing who actually created the note.
@@ -129,29 +129,37 @@ Another strong chain from the upload path is:
 Save raw filename → attacker-controlled file placement → overwrite/modify server-accessible data
 
 4. One-line system claim
-
+---
 Even if every element-level mitigation in Task 8 is implemented, this system still fails if requests can cross the public-to-application trust boundary without reliable authentication and authorization.
 
 **Task 4 — Abuse cases & attacker personas (20 min)** · *Goal:* think like specific adversaries. *Steps:* define 2 personas (e.g. a curious logged-in user; an anonymous internet attacker) and write 2 abuse cases each against the sample app, tied to DFD elements. *Deliverable:* 4 abuse cases.
 
 (Task 4)
+
 Abuse Cases & Attacker Personas
+
 Persona 1 — Curious Logged-in User
+
 A normal user who tries to access or modify data beyond what they should.
-- 1.Spoof another note owner
+> 1.Spoof another note owner
 The user sends a POST request to /notes and changes the owner field to another person's name.
+
 DFD element: Client → Flask /notes
-- 2.Access another user's notes
+> 2.Access another user's notes
 The user requests notes without proper authorization checks and may see data belonging to other users.
+
 DFD element: Flask → notes.db
 
 Persona 2 — Anonymous Internet Attacker
+
 An external attacker with no legitimate account who sends malicious requests directly to the application.
 
-- 3.Upload a malicious or misleading file
+> 3.Upload a malicious or misleading file
 The attacker sends a crafted filename to /upload because the application saves the raw f.filename.
+
 DFD element: Client → Flask /upload → uploads/
-- 4.Cause storage exhaustion
+
+> 4.Cause storage exhaustion
 The attacker repeatedly uploads large or numerous files until the server runs out of storage, causing denial of service.
 DFD element: /upload → uploads/ directory
 
@@ -222,6 +230,7 @@ Secure-design summary: Never use a client-supplied filename directly as a filesy
 **Task 8 — Defend / fix it: rank & mitigate (25 min) 🛡️** · *Goal:* turn threats into action you can prove. *Steps:* rank the top 5 threats by likelihood × impact; propose one concrete mitigation each (e.g., auth on `/notes`, `secure_filename()` + allowlist for `/upload`, request logging for Repudiation, size/rate limits for DoS). Then **pick one and actually implement it** in your fork.
 
 (Task 8)
+
 Top 5 Threats — Rank & Mitigate
 | Rank | Threat                                                                                             | STRIDE                             | Likelihood | Impact |   Risk | Concrete mitigation                                                                                             |
 | ---- | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------: | -----: | -----: | --------------------------------------------------------------------------------------------------------------- |
@@ -230,6 +239,102 @@ Top 5 Threats — Rank & Mitigate
 | 3    | `/notes` GET returns all stored notes without authentication or authorization                      | Information Disclosure             |          5 |      4 | **20** | Require authentication and return only notes belonging to the authenticated user.                               |
 | 4    | Uploads and requests have no size/rate limits, allowing resource exhaustion                        | Denial of Service                  |          4 |      4 | **16** | Add maximum upload/request sizes and rate limiting.                                                             |
 | 5    | Important actions are not logged, so malicious users can deny what they did                        | Repudiation                        |          4 |      3 | **12** | Log security-relevant actions such as uploads, note creation, failures, timestamp, and authenticated user.      |
+
+### Selected Fix — Unsafe File Upload / Path Traversal
+
+I selected the unsafe `/upload` endpoint because it used a client-controlled filename directly as part of a filesystem path. A filename containing `../` could escape the intended `uploads` directory and write a file elsewhere.
+
+#### Before
+
+```python
+@app.route("/upload", methods=["POST"])
+def upload():
+    f = request.files["file"]
+    f.save(os.path.join(UPLOAD_DIR, f.filename))
+    return {"saved": f.filename}
+```
+
+The original code joined `UPLOAD_DIR` directly with `f.filename`, which was supplied by the client.
+
+#### After
+
+```python
+@app.route("/upload", methods=["POST"])
+def upload():
+    uploaded_file = request.files.get("file")
+
+    if uploaded_file is None or not uploaded_file.filename:
+        return {"error": "File is required"}, 400
+
+    original_name = uploaded_file.filename
+    sanitized_name = secure_filename(original_name)
+
+    if sanitized_name != original_name or not allowed_file(sanitized_name):
+        return {"error": "Invalid filename or file type"}, 400
+
+    stored_name = uuid.uuid4().hex
+    uploaded_file.save(os.path.join(UPLOAD_DIR, stored_name))
+
+    return {"saved": stored_name}, 201
+```
+
+The fixed endpoint rejects unsafe filenames and unsupported extensions. Accepted files are stored using a UUID generated by the server rather than the filename supplied by the client.
+
+#### Before-fix evidence
+
+**Request:**
+
+```powershell
+curl.exe -s -X POST http://localhost:8080/upload -F "file=@$env:TEMP\week01-proof.txt;filename=../escaped.txt"
+```
+
+**Output:**
+
+```text
+{"saved":"../escaped.txt"}
+```
+
+The vulnerable endpoint accepted the traversal filename.
+
+#### After-fix evidence
+
+**Same request:**
+
+```powershell
+curl.exe -i -X POST http://localhost:8080/upload -F "file=@$env:TEMP\week01-proof.txt;filename=../escaped.txt"
+```
+
+**Output:**
+
+```text
+HTTP/1.1 400 BAD REQUEST
+{"error":"Invalid filename or file type"}
+```
+
+The fixed endpoint refused the same malicious request.
+
+#### Valid-upload regression test
+
+```powershell
+curl.exe -i -X POST http://localhost:8080/upload -F "file=@$env:TEMP\week01-proof.txt;filename=proof.txt"
+```
+
+```text
+HTTP/1.1 201 CREATED
+{"saved":"3c10336af0dd41d0b3257cd2f919c9f1"}
+```
+
+This confirms that approved uploads still work and receive a server-generated filename.
+
+#### Git diff
+
+- **Branch:** `week-01`
+- **Commit:** `bcc28fe`
+- **Commit message:** `Fix unsafe file upload path handling`
+
+#### Why this closes the vulnerability class
+
+This is a class fix for upload-path construction because no client-supplied filename becomes part of the stored filesystem path; every accepted file receives a server-generated UUID. It prevents all filename-based traversal patterns instead of blocking only the tested `../escaped.txt` value. An application-wide class fix would enforce the same rule through one shared storage function used by every endpoint that writes files.
 
 *Deliverable — the top-5 table, plus for the one you implemented:*
 1. the **diff** (commit hash on your `wk01` branch),
@@ -240,9 +345,11 @@ Top 5 Threats — Rank & Mitigate
 
 ## Part 4 — Reflection
 1. Map your top finding to a CWE and to OWASP A06 (Insecure Design); explain the mapping in one sentence.
+> 1.The unsafe /upload path is CWE-22: Path Traversal because external input was used to construct a path that could escape the intended directory; it maps to OWASP 2025 A06: Insecure Design because the upload feature was designed without a rule preventing client-controlled filenames from becoming storage paths. (
 2. Name one real-world breach caused by a design flaw (not a missing patch) and what design control would have prevented it.
+> 2.In the 2013 Target breach, attackers initially used an HVAC vendor’s credentials and later reached the point-of-sale network, affecting millions of customers. Strong network segmentation, least-privilege vendor access, and multi-factor authentication would have prevented or greatly limited this movement.
 3. Of your five mitigations, which gives the most risk reduction per unit of effort, and why?
-
+> 3.The upload-path mitigation gives the greatest risk reduction per unit of effort because a small code change blocks the highest-ranked threat: path traversal and arbitrary file writing. Rejecting unsafe filenames and using server-generated UUIDs removes client control over storage paths while allowing valid uploads to continue working.
 ## Grading rubric (100)
 | Criterion | Points |
 |---|---|
@@ -279,8 +386,68 @@ Top 5 Threats — Rank & Mitigate
 AI is a power tool you must **distrust** — you are graded on your *critique*, not the AI's answer.
 
 1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer.
+
+AI assistant’s full answer
+
+>To prevent path traversal, sanitize the uploaded filename with Werkzeug’s secure_filename() before saving it:
+```bash
+from werkzeug.utils import secure_filename
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    uploaded_file = request.files["file"]
+    filename = secure_filename(uploaded_file.filename)
+    uploaded_file.save(os.path.join(UPLOAD_DIR, filename))
+    return {"saved": filename}
+```
+>secure_filename() removes dangerous path characters, so this completely secures the upload endpoint.
+
 2. **Find what's wrong or risky** in it — insecure code, a subtly incomplete fix, a hallucinated API/function/CVE, a missed edge case, or wrong reasoning. Quote the exact line(s).
+
+What is wrong or risky
+```bash
+filename = secure_filename(uploaded_file.filename)
+uploaded_file.save(os.path.join(UPLOAD_DIR, filename))
+```
+>The answer still uses a client-selected filename as the stored path, so two files with the same name could overwrite each other. It also does not reject an empty filename, restrict dangerous file types, or generate a unique server-controlled filename; therefore, the claim that it “completely secures” the endpoint is incorrect.
+
 3. Produce the **correct, verified** version yourself and explain in 2–3 sentences why the AI's output was insufficient.
+
+Correct, verified version
+```bash
+import uuid
+
+from werkzeug.utils import secure_filename
+
+ALLOWED_EXTENSIONS = {"txt", "png", "pdf"}
+
+
+def allowed_file(filename):
+    return (
+        "." in filename
+        and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    )
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    uploaded_file = request.files.get("file")
+
+    if uploaded_file is None or not uploaded_file.filename:
+        return {"error": "File is required"}, 400
+
+    original_name = uploaded_file.filename
+    sanitized_name = secure_filename(original_name)
+
+    if sanitized_name != original_name or not allowed_file(sanitized_name):
+        return {"error": "Invalid filename or file type"}, 400
+
+    stored_name = uuid.uuid4().hex
+    uploaded_file.save(os.path.join(UPLOAD_DIR, stored_name))
+
+    return {"saved": stored_name}, 201
+```
+>The AI’s answer was insufficient because sanitization alone did not ensure that client-controlled filenames were kept out of storage paths. The corrected version rejects unsafe names and extensions and stores valid files under server-generated UUIDs. Verification showed that ../escaped.txt received 400 BAD REQUEST, while the valid proof.txt upload received 201 CREATED.
 
 > Disclose your AI use in the Part 1 table. This task counts toward your **Defense + Reflection** score.
 
@@ -290,5 +457,15 @@ AI is a power tool you must **distrust** — you are graded on your *critique*, 
 
 **A. Explain in Plain English (EiPE).** In 2–3 sentences, in your own words, describe what this week's vulnerable code/endpoint actually *does* and *why it is exploitable* — explain the mechanism, don't dump jargon.
 
+>The /upload endpoint receives a file and originally saved it using the filename supplied by the user. An attacker could include ../ in that filename, causing the final path to leave the intended uploads folder and write a file somewhere else that the application can access.
+
 **B. Prompt Problem.** Write a **single prompt** that makes an AI produce a *correct, secure* fix for one finding. Run it: does the exploit now fail? If not, refine the prompt and try again. Submit the **final prompt + the verified result**.
 *Graded on the prompt's precision and your verification — this trains problem decomposition and AI literacy (Denny et al. 2024).*
+
+Final prompt given to the AI:
+
+>Fix only the path-traversal vulnerability in the Flask /upload endpoint. Read the file with request.files.get("file"); reject missing or empty filenames with HTTP 400; use secure_filename() and reject the request if sanitization changes the original filename; allow only txt, png, and pdf; and store accepted files using uuid.uuid4().hex so no user-supplied filename becomes part of the filesystem path. Preserve the route, save inside UPLOAD_DIR, return HTTP 201 for a valid upload, and provide complete Python code including required imports and helper functions.
+
+Verified result:
+
+>I ran the original attack again using the filename ../escaped.txt. The fixed endpoint returned 400 BAD REQUEST with {"error":"Invalid filename or file type"}, so the path-traversal exploit failed. A normal upload named proof.txt still returned 201 CREATED and was stored under a server-generated UUID.
