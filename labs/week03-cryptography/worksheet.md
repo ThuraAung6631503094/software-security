@@ -9,7 +9,7 @@
 ## Part 1 — Student Information
 | Name | Student ID | Date | Group | AI Tool |
 |---|---|---|---|---|
-| Thura Aung | 6631503094 | 16.8.2026 |  | ChatGPT |
+| Thura Aung | 6631503094 | 16.8.2026 | - | ChatGPT |
 
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
