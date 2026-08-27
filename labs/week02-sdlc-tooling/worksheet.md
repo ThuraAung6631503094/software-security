@@ -182,7 +182,7 @@ on:
     branches: [main]
     paths:
       - "project/starter-app/**"
-      - ".github/workflows/security-ci.yml"
+      - ".github/workflows/notevault-security-ci.yml"
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -214,7 +214,7 @@ jobs:
       - name: Run Trivy SCA gate
         id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: fs
           scan-ref: project/starter-app
