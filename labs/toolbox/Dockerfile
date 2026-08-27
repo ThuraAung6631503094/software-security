@@ -12,7 +12,7 @@
 #
 # silkeh/clang ships a working libFuzzer runtime (Apple clang does not), so
 # `clang -fsanitize=address,fuzzer harness.c -o fuzz && ./fuzz` works here.
-FROM silkeh/clang:19
+FROM silkeh/clang:19-bullseye
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc make \
