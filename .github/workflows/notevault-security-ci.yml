@@ -1,0 +1,80 @@
+name: NoteVault Security CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "project/starter-app/**"
+      - ".github/workflows/notevault-security-ci.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-gate:
+    name: Semgrep + Trivy + Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep SAST
+        id: semgrep
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$PWD/project/starter-app:/src" \
+            semgrep/semgrep:latest \
+            semgrep scan \
+            --config p/default \
+            --config p/owasp-top-ten \
+            --error /src
+
+      - name: Run Trivy SCA gate
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: project/starter-app
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Run Gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$PWD/project/starter-app:/repo" \
+            zricethezav/gitleaks:latest \
+            detect \
+            --source=/repo \
+            --no-git \
+            --verbose \
+            --exit-code 1
+
+      - name: Enforce security gate
+        if: always()
+        env:
+          SEMGREP_OUTCOME: ${{ steps.semgrep.outcome }}
+          TRIVY_OUTCOME: ${{ steps.trivy.outcome }}
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+        run: |
+          echo "Semgrep: $SEMGREP_OUTCOME"
+          echo "Trivy: $TRIVY_OUTCOME"
+          echo "Gitleaks: $GITLEAKS_OUTCOME"
+
+          if [[ "$SEMGREP_OUTCOME" == "failure" ||
+                "$TRIVY_OUTCOME" == "failure" ||
+                "$GITLEAKS_OUTCOME" == "failure" ]]; then
+            echo "::error::Security gate failed because vulnerabilities or secrets were detected."
+            exit 1
+          fi
+
+          echo "Security gate passed."
