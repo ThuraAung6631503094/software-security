@@ -7,6 +7,6 @@ services:
     volumes:
       - ./:/lab
     command: >
-      bash -c "pip install --no-cache-dir flask &&
+      bash -c "pip install --no-cache-dir --index-url https://pypi.org/simple flask &&
                echo '--- vulnerable app on :8080 (use fixed_app.py for the secured version) ---' &&
                python vulnerable_app.py"
